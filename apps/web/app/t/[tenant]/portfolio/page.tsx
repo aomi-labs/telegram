@@ -15,10 +15,11 @@ interface PortfolioView { mapped: boolean; portfolio: Portfolio; positions: Posi
 export default function PortfolioPage({ params }: { params: Promise<{ tenant: string }> }) {
   const { tenant } = use(params);
   const summary = useApi<Summary>(tenant, "/summary");
-  const { data, error } = useApi<PortfolioView>(tenant, "/portfolio");
+  const { data, error, reload } = useApi<PortfolioView>(tenant, "/portfolio");
   return (
     <Shell tenant={tenant} view="portfolio" title={summary.data?.title} tagline={summary.data?.tagline} botUsername={summary.data?.botUsername}>
-      {error ? <p className="error">Couldn’t read the venue: {error}</p> : null}
+      {!data && !error ? <p role="status">Loading your World account…</p> : null}
+      {error ? <p className="error">Couldn’t load your account: {error} <button onClick={reload}>Retry</button></p> : null}
       {data && !data.mapped ? <Unmapped title={summary.data?.title ?? "partner"} /> : null}
       {data?.mapped ? (
         <>

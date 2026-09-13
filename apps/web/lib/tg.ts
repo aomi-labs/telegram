@@ -5,8 +5,18 @@ export function tg() {
   return typeof window === "undefined" ? undefined : window.Telegram?.WebApp;
 }
 
+let launchInitData = "";
+
 export function initData(): string {
-  return tg()?.initData ?? "";
+  const sdkData = tg()?.initData;
+  if (sdkData) return sdkData;
+  if (typeof window === "undefined") return "";
+  // Telegram supplies the signed launch payload in the fragment. Capture it
+  // before client navigation removes the fragment; the BFF still verifies it
+  // against Telegram's public key, bot ID and freshness on every request.
+  const fragmentData = new URLSearchParams(window.location.hash.slice(1)).get("tgWebAppData");
+  if (fragmentData) launchInitData = fragmentData;
+  return launchInitData;
 }
 
 /** Opens the bot chat with a draft pre-entered. The user still presses send; that is the consent. */

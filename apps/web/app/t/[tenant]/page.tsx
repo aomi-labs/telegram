@@ -12,14 +12,15 @@ import type { Summary } from "@/lib/summary.ts";
 /** Compact launch: the headline figures and what changed since the last look. Drag up for the ledger. */
 export default function Home({ params }: { params: Promise<{ tenant: string }> }) {
   const { tenant } = use(params);
-  const { data, error } = useApi<Summary>(tenant, "/summary");
+  const { data, error, reload } = useApi<Summary>(tenant, "/summary");
   useEffect(() => {
     if (data?.mapped) void api(tenant, "/visit", { method: "POST" }).catch(() => {});
   }, [tenant, data?.mapped]);
 
   return (
     <Shell tenant={tenant} view="" title={data?.title} tagline={data?.tagline} botUsername={data?.botUsername}>
-      {error ? <p className="error">Couldn’t read the venue: {error}</p> : null}
+      {!data && !error ? <p role="status">Loading your World account…</p> : null}
+      {error ? <p className="error">Couldn’t load your account: {error} <button onClick={reload}>Retry</button></p> : null}
       {data && !data.mapped ? <Unmapped title={data.title} /> : null}
       {data?.mapped && data.portfolio ? (
         <>

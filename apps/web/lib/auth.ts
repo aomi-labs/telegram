@@ -55,14 +55,20 @@ export function json(body: unknown, status = 200): Response {
 export function route<A = unknown>(handler: (auth: Authorized<A>, request: Request, params: Record<string, string>) => Promise<Response>) {
   return async (request: Request, context: { params: Promise<Record<string, string>> }): Promise<Response> => {
     const params = await context.params;
+    const startedAt = Date.now();
+    const observed = (response: Response) => {
+      // No headers, launch payload, Telegram identity or query string in logs.
+      console.info(JSON.stringify({ event: "bff.response", path: new URL(request.url).pathname, status: response.status, ms: Date.now() - startedAt }));
+      return response;
+    };
     try {
       const auth = await authorize<A>(request, params.tenant ?? "");
-      return await handler(auth, request, params);
+      return observed(await handler(auth, request, params));
     } catch (error) {
-      if (error instanceof AuthError) return json({ error: error.message }, error.status);
+      if (error instanceof AuthError) return observed(json({ error: error.message }, error.status));
       const cause = (error as { cause?: { code?: string; message?: string } }).cause;
       console.error(JSON.stringify({ event: "bff.error", error: String(error), cause: cause ? `${cause.code ?? ""} ${cause.message ?? ""}`.trim() : undefined }));
-      return json({ error: "venue_read_failed" }, 502);
+      return observed(json({ error: "venue_read_failed" }, 502));
     }
   };
 }

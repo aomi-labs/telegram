@@ -7,3 +7,4 @@ dist/
 state/
 .next/
 .vercel/
+.next-production/
