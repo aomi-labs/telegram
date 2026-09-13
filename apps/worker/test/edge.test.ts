@@ -104,7 +104,7 @@ suite("chart photo reply (needs TEST_DATABASE_URL)", () => {
     const uploads: { url: string; body: FormData }[] = [];
     const photoFetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/sendPhoto")) uploads.push({ url, body: init?.body as FormData });
+      if (url.endsWith("/sendPhoto")) uploads.push({ url, body: await new Request(url, init).formData() });
       return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
     }) as typeof fetch;
     try {

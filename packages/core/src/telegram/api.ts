@@ -69,9 +69,18 @@ export class BotApi {
     const form = new FormData();
     form.set("chat_id", String(chatId));
     form.set("caption", caption);
+    form.set("parse_mode", "HTML");
     form.set("photo", new Blob([png], { type: "image/png" }), "chart.png");
     if (button) form.set("reply_markup", JSON.stringify({ inline_keyboard: [[button]] }));
-    const response = await this.fetchImpl(`${this.base}/bot${this.token}/sendPhoto`, { method: "POST", body: form });
+    // Node's native FormData and the proxy-capable undici fetch can come from
+    // different implementations. Serialize with its matching native Request
+    // first so either transport receives bytes, not "[object FormData]".
+    const upload = new Request(`${this.base}/bot${this.token}/sendPhoto`, { method: "POST", body: form });
+    const response = await this.fetchImpl(upload.url, {
+      method: "POST",
+      headers: { "content-type": upload.headers.get("content-type")! },
+      body: await upload.arrayBuffer(),
+    });
     const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; error_code?: number; description?: string };
     if (!response.ok || payload.ok === false) {
       throw new BotApiError("sendPhoto", payload.error_code ?? response.status, payload.description ?? response.statusText);
