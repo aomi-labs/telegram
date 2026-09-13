@@ -1,0 +1,21 @@
+{
+  "name": "@aomi-telegram/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "start": "tsx src/main.ts",
+    "onboard": "tsx src/onboard.ts"
+  },
+  "dependencies": {
+    "@aomi-telegram/core": "workspace:*",
+    "@aomi-telegram/tenant-world": "workspace:*",
+    "@hono/node-server": "^1.14.0",
+    "@resvg/resvg-js": "2.6.2",
+    "hono": "^4.7.0",
+    "postgres": "^3.4.7",
+    "zod": "^4.0.0"
+  }
+}
