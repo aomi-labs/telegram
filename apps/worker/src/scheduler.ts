@@ -110,7 +110,7 @@ export class Scheduler {
     const key = `fills:${binding.accountId}`;
     const head = await adapter.headBlock();
     const from = (await store.cursor(row.id, key)) ?? adapter.fillsGenesis;
-    if (from >= head) return;
+    if (from > head) return;
     const chunk = this.deps.fillsChunk ?? 100_000n;
     const to = from + chunk < head ? from + chunk : head;
     const account = await adapter.resolveAccount(binding);
