@@ -9,6 +9,7 @@ export interface EdgeDeps {
   store: Store;
   sealer: Sealer;
   telegramApiBase: string;
+  fetchImpl?: typeof fetch;
   publicWebUrl?: string;
   log: (event: string, fields?: Record<string, unknown>) => void;
 }
@@ -27,7 +28,7 @@ export class TenantEdge {
     private readonly tenant: Tenant<any>,
     private readonly deps: EdgeDeps,
   ) {
-    this.api = new BotApi(deps.sealer.open(row.bot_token_sealed), deps.telegramApiBase);
+    this.api = new BotApi(deps.sealer.open(row.bot_token_sealed), deps.telegramApiBase, deps.fetchImpl);
     this.vendorCommands = commandNames(tenant);
   }
 

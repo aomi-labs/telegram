@@ -87,3 +87,26 @@ app → draft prefill.
    on `cecilia/agent-unifi-local`, and the two harness fixes in `world-local-e2e`.
 4. Rotate both bot tokens used today (8591768935 and 8716577788); they appeared in chat.
 5. Deploy per `docs/deploy.md` (Fly worker, Vercel web, one Postgres), then staging soak with World.
+
+
+## Codex verification — 2026-09-14
+
+- Baseline committed and pushed to private `aomi-labs/telegram` (`0d33c9c`).
+- Composite checkpoint `8b022339` and tenant-routing fix `e40f7397` are on
+  `CeciliaZ030/frontend`, branch `cecilia/agent-unifi-local`; upstream access is read-only.
+- Local backend/harness checkpoint `0fdaa0bff` is on `aomi-labs/product-mono`,
+  branch `cecilia/world-local-e2e`. These are checkpoints, not release approvals.
+- Standard MetaMask and Flask both emitted alternating UniFi/MegaETH chain events while
+  the page recorded no switch requests. Disabling Flask and reloading with standard
+  MetaMask stopped the observed loop; subsequent chain sampling stayed on UniFi.
+- The fork was down. Restored using the scoped harness in persistent screen session
+  `codex-world-fork`; account 21 has 1,000 USDT plus 0.05 WETH after this fresh bootstrap.
+- Fixed Composite ingest routing: backend platform `world-market-apps` and mini-app
+  tenant `world` are independent identifiers. The new `miniAppTenantId` config selects `world`.
+  Browser SIWE issue succeeded, QR rendered, and the service stored the account-21 mapping.
+- Service verification: 44 tests pass with an isolated local test database, 2 optional
+  public-chain tests skipped. All packages typecheck. Edge tests inject their HTTP
+  transport rather than replacing global fetch after the proxy transport was captured.
+- Pending: real phone QR claim, owner grant, activation, real bot commands and mini-app
+  initData, chat draft handoff, agent trade receipt and negative authorization cases.
+- No deployment or bot-token rotation completed.

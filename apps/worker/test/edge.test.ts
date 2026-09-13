@@ -23,7 +23,8 @@ suite("tenant edge (needs TEST_DATABASE_URL)", () => {
   const sql = postgres(url ?? "", { max: 2, onnotice: () => {} });
   const store = new Store(sql);
   const sealer = new Sealer("11".repeat(32));
-  const tenantId = `edge_${Date.now()}`;
+  const botId = String(Date.now());
+  const tenantId = `edge_${botId}`;
   const telegramCalls: { method: string; body: Record<string, unknown> }[] = [];
   const forwarded: Update[] = [];
   const log = vi.fn();
@@ -38,15 +39,12 @@ suite("tenant edge (needs TEST_DATABASE_URL)", () => {
     forwarded.push(body);
     return new Response("{}", { status: 200 });
   };
-  const originalFetch = globalThis.fetch;
 
   beforeAll(async () => {
-    globalThis.fetch = fakeFetch;
     await migrate(sql);
-    await store.upsertTenant({ id: tenantId, bot_id: "9", bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] });
+    await store.upsertTenant({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] });
   });
   afterAll(async () => {
-    globalThis.fetch = originalFetch;
     await sql`DELETE FROM outbox WHERE tenant = ${tenantId}`;
     await sql`DELETE FROM visits WHERE tenant = ${tenantId}`;
     await sql`DELETE FROM accounts WHERE tenant = ${tenantId}`;
@@ -54,19 +52,19 @@ suite("tenant edge (needs TEST_DATABASE_URL)", () => {
     await sql.end();
   });
 
-  const edge = () => new TenantEdge({ id: tenantId, bot_id: "9", bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] }, world, { store, sealer, telegramApiBase: "http://tg.local", log, publicWebUrl: "https://tg.example" });
+  const edge = () => new TenantEdge({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] }, world, { store, sealer, telegramApiBase: "http://tg.local", fetchImpl: fakeFetch, log, publicWebUrl: "https://tg.example" });
 
   it("answers a vendor command itself and never forwards it", async () => {
     await edge().handle(dm("/b"));
     expect(telegramCalls.at(-1)).toMatchObject({ method: "sendMessage", body: { chat_id: "4242" } });
-    expect(await drainOnce({ store, log, webhookUrlFor: async () => "http://aomi.local/hook" })).toBe(0);
+    expect(await drainOnce({ store, log, webhookUrlFor: async () => "http://aomi.local/hook", fetchImpl: fakeFetch })).toBe(0);
     expect(forwarded).toHaveLength(0);
   });
 
   it("forwards text verbatim through the outbox", async () => {
     const update = dm("hello there");
     await edge().handle(update);
-    await drainOnce({ store, log, webhookUrlFor: async () => "http://aomi.local/hook" });
+    await drainOnce({ store, log, webhookUrlFor: async () => "http://aomi.local/hook", fetchImpl: fakeFetch });
     expect(forwarded.at(-1)).toEqual(update);
   });
 
@@ -75,7 +73,7 @@ suite("tenant edge (needs TEST_DATABASE_URL)", () => {
     const update = dm("/start tokXYZ123456");
     await edge().handle(update);
     expect(await store.binding(tenantId, "4242")).toMatchObject({ accountId: "11" });
-    await drainOnce({ store, log, webhookUrlFor: async () => "http://aomi.local/hook" });
+    await drainOnce({ store, log, webhookUrlFor: async () => "http://aomi.local/hook", fetchImpl: fakeFetch });
     expect(forwarded.at(-1)).toEqual(update);
   });
 
@@ -99,12 +97,12 @@ suite("chart photo reply (needs TEST_DATABASE_URL)", () => {
     const sql = postgres(process.env.TEST_DATABASE_URL ?? "", { max: 1, onnotice: () => {} });
     const store = new Store(sql);
     const sealer = new Sealer("22".repeat(32));
-    const tenantId = `photo_${Date.now()}`;
+    const botId = String(Date.now());
+    const tenantId = `photo_${botId}`;
     await migrate(sql);
-    await store.upsertTenant({ id: tenantId, bot_id: "9", bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] });
+    await store.upsertTenant({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] });
     const uploads: { url: string; body: FormData }[] = [];
-    const original = globalThis.fetch;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const photoFetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/sendPhoto")) uploads.push({ url, body: init?.body as FormData });
       return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
@@ -115,7 +113,7 @@ suite("chart photo reply (needs TEST_DATABASE_URL)", () => {
         id: tenantId, adapter: {} as never, watches: [], copy: { unmapped: "", renderFailed: "", title: "", tagline: "" }, compose: {} as never,
         commands: [{ name: "chart", description: "", budget: 120, render: async () => ({ text: "<code>X</code> week", svg: candlesSvg(candles, "1.4", "X · w") }) }],
       };
-      const edge = new TenantEdge({ id: tenantId, bot_id: "9", bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] }, tenant as never, { store, sealer, telegramApiBase: "http://tg.local", log: () => {} });
+      const edge = new TenantEdge({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] }, tenant as never, { store, sealer, telegramApiBase: "http://tg.local", fetchImpl: photoFetch, log: () => {} });
       await edge.handle(dm("/chart X w", 777));
       expect(uploads).toHaveLength(1);
       const form = uploads[0]!.body;
@@ -125,7 +123,6 @@ suite("chart photo reply (needs TEST_DATABASE_URL)", () => {
       const bytes = new Uint8Array(await photo.arrayBuffer());
       expect([...bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
     } finally {
-      globalThis.fetch = original;
       await sql`DELETE FROM visits WHERE tenant = ${tenantId}`;
       await sql`DELETE FROM tenants WHERE id = ${tenantId}`;
       await sql.end();
