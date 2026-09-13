@@ -16,6 +16,8 @@ export interface TenantRow {
 
 export interface OutboxRow { id: string; tenant: string; update: Update; attempts: number }
 
+export interface VendorJob extends OutboxRow { lease_token: string }
+
 export type WatchState = "watching" | "paused" | "fired" | "cancelled" | "expired";
 export interface WatchRow {
   id: string;
@@ -93,11 +95,46 @@ export class Store {
     await this.sql`INSERT INTO outbox (tenant, update) VALUES (${tenant}, ${this.sql.json(update as never)})`;
   }
 
+  async enqueueVendor(tenant: string, update: Update): Promise<void> {
+    await this.sql`INSERT INTO outbox (tenant, update, target)
+      VALUES (${tenant}, ${this.sql.json(update as never)}, 'vendor') ON CONFLICT DO NOTHING`;
+  }
+
+  /** Claim and lease in one statement; locks survive until the UPDATE finishes. */
+  claimVendor(limit: number, leaseToken: string): Promise<VendorJob[]> {
+    return this.sql<VendorJob[]>`
+      WITH due AS (
+        SELECT id FROM outbox WHERE target = 'vendor' AND completed_at IS NULL
+          AND next_at <= now() AND (lease_until IS NULL OR lease_until <= now())
+        ORDER BY id LIMIT ${limit} FOR UPDATE SKIP LOCKED
+      )
+      UPDATE outbox SET lease_until = now() + interval '60 seconds', lease_token = ${leaseToken}
+      FROM due WHERE outbox.id = due.id
+      RETURNING outbox.id, tenant, update, attempts, lease_token`;
+  }
+
+  async renewVendor(id: string, leaseToken: string): Promise<boolean> {
+    const rows = await this.sql`UPDATE outbox SET lease_until = now() + interval '60 seconds'
+      WHERE id = ${id} AND lease_token = ${leaseToken} AND completed_at IS NULL RETURNING id`;
+    return rows.length === 1;
+  }
+
+  async completeVendor(id: string, leaseToken: string): Promise<void> {
+    await this.sql`UPDATE outbox SET completed_at = now(), lease_until = NULL, lease_token = NULL
+      WHERE id = ${id} AND lease_token = ${leaseToken}`;
+  }
+
+  async retryVendor(id: string, leaseToken: string, attempts: number): Promise<void> {
+    await this.sql`UPDATE outbox SET attempts = ${attempts}, lease_until = NULL, lease_token = NULL,
+      next_at = now() + make_interval(secs => ${Math.min(2 ** attempts, 300)})
+      WHERE id = ${id} AND lease_token = ${leaseToken}`;
+  }
+
   /** Claims due rows for one drainer pass; other drainers skip locked rows. */
   claimDue(limit: number): Promise<OutboxRow[]> {
     return this.sql<OutboxRow[]>`
       SELECT id, tenant, update, attempts FROM outbox
-      WHERE next_at <= now()
+      WHERE target = 'backend' AND next_at <= now()
       ORDER BY id
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED`;

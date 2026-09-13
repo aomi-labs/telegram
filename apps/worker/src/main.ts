@@ -5,6 +5,8 @@ import { loadConfig } from "./config.ts";
 import { startDrainer } from "./forward.ts";
 import { createApp } from "./server.ts";
 import { Scheduler, startScheduler } from "./scheduler.ts";
+import { TenantEdge } from "./edge.ts";
+import { startVendorDrainer } from "./vendor.ts";
 import { tenants } from "./tenants.ts";
 
 const log = (event: string, fields: Record<string, unknown> = {}) =>
@@ -24,6 +26,19 @@ const stopDrainer = startDrainer(
   config.FORWARD_INTERVAL_MS,
 );
 
+const stopVendorDrainer = startVendorDrainer({
+  store, log,
+  handle: async (id, update) => {
+    const row = await store.tenant(id);
+    const tenant = tenants.get(id);
+    if (!row || !tenant) throw new Error("unknown tenant");
+    await new TenantEdge(row, tenant, {
+      store, sealer, telegramApiBase: config.TELEGRAM_API_BASE, log,
+      ...(config.PUBLIC_WEB_URL ? { publicWebUrl: config.PUBLIC_WEB_URL } : {}),
+    }).handle(update);
+  },
+});
+
 const stopScheduler = startScheduler(
   new Scheduler({ store, sealer, telegramApiBase: config.TELEGRAM_API_BASE, tenants, log }),
   config.SCHEDULER_INTERVAL_MS,
@@ -35,6 +50,7 @@ const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => log("lis
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     stopDrainer();
+    stopVendorDrainer();
     stopScheduler();
     server.close();
     void sql.end({ timeout: 5 }).then(() => process.exit(0));

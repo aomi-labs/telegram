@@ -32,6 +32,15 @@ export class TenantEdge {
     this.vendorCommands = commandNames(tenant);
   }
 
+  /** Commit slow vendor work before acknowledging Telegram's webhook. */
+  async accept(update: Update): Promise<void> {
+    if (classify(update, this.vendorCommands).kind === "vendor_command") {
+      await this.deps.store.enqueueVendor(this.row.id, update);
+      return;
+    }
+    await this.handle(update);
+  }
+
   async handle(update: Update): Promise<void> {
     const route = classify(update, this.vendorCommands);
     const { store, log } = this.deps;

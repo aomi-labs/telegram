@@ -39,11 +39,11 @@ export function createApp(deps: ServerDeps): Hono {
     const update = (await c.req.json().catch(() => null)) as Update | null;
     if (!update || typeof update.update_id !== "number") return c.json({ ok: false }, 400);
     try {
-      await found.edge.handle(update);
+      await found.edge.accept(update);
     } catch (error) {
-      // Never let Telegram retry-storm us: log and acknowledge. The outbox
-      // write is the only step whose failure loses an update, and it is first.
+      // A failed durable write must remain retryable by Telegram.
       log("edge.error", { tenant: found.row.id, update_id: update.update_id, error: String(error) });
+      return c.json({ ok: false }, 503);
     }
     return c.json({ ok: true });
   });
