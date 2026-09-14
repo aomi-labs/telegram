@@ -55,7 +55,7 @@ export class Store {
         ingest_origins = EXCLUDED.ingest_origins`;
   }
 
-  /** Partner web registered a handover it just issued. Idempotent on token hash. */
+  /** The trusted issuer registered a handover it just issued. Idempotent on token hash. */
   async recordPendingHandover(pending: PendingHandover): Promise<void> {
     await this.sql`
       INSERT INTO accounts (tenant, token_hash, account_id, chain_id, owner_address)

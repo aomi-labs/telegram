@@ -1,3 +1,9 @@
+# Security update (2026-09-14)
+
+The browser-origin registration described in the historical handoff below is retired.
+Only a trusted issuer bearing the tenant ingest key may register account bindings.
+See `partner-onboarding.md` for the current contract and coordinated rollout.
+
 # Handover: World Markets × aomi Telegram mini-app service
 
 Date: 2026-09-14. Everything below is uncommitted working-tree state. No remote repo exists yet.
