@@ -6,25 +6,28 @@ What a partner does once to put their bot behind the service.
    reads the webhook currently registered on the bot (the aomi backend's URL),
    stores it as the forward target, points the bot at the service, registers
    the command menu, and prints an ingest key exactly once.
-2. **Post handovers at issue time.** After the partner web app's aomi issue
-   call succeeds, it posts to the service so the coming `/start` can be bound:
+2. **Register through the trusted issuer.** Configure the Aomi manager's
+   `AOMI_TELEGRAM_HANDOVER_INGEST` JSON mapping, keyed by the exact bot
+   registration id, with `url` and the tenant's server-only `key`. Wallet
+   issuance registers the verified account, owner and venue chain before
+   returning the QR token. The registration request is:
 
    ```http
    POST /t/<tenant>/handovers
-   Origin: https://dev.wcm.inc            (an allowlisted web origin)
-     — or —
-   Authorization: Bearer <ingest key>     (from a server)
+   Authorization: Bearer <ingest key>
+   Content-Type: application/json
 
    { "token_hash": "<sha256 hex of the raw token>", "account_id": "11",
      "chain_id": 2092151908, "owner_address": "0x..." }
    ```
 
-   Send the hash, never the token. The service never holds a claimable token.
-   A browser call from an allowlisted origin needs no key: the token hash is
-   unguessable, and the service reads the account's owner on chain and refuses
-   the row unless it matches `owner_address`. Origins are set at onboarding
-   with `--ingest-origin`. World's web app does this in
-   `registerHandoverWithMiniApp` when `aomi.miniAppUrl` is configured.
+   Send the bare-token SHA-256, not Aomi's prefixed internal claim hash.
+   The service never holds a claimable token. A browser Origin is not
+   authorization, even if allowlisted, and must never receive the ingest key.
+   Release the configured issuer and bearer-only worker together before
+   switching the frontend. Review/invalidate bindings created through the
+   former public endpoint and require affected users to relink; this change
+   does not retroactively establish their provenance.
 3. **Keep the bot registration.** If the aomi bot registration is ever
    recreated, aomi re-points the webhook at itself and the service goes quiet
    until step 1 is repeated. The service's health check compares

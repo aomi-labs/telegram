@@ -48,9 +48,7 @@ export function createApp(deps: ServerDeps): Hono {
     return c.json({ ok: true });
   });
 
-  // A partner SPA has no server to hold the ingest key, so an allowlisted web
-  // origin may register a handover instead. What keeps that safe: the token
-  // hash is unguessable, and the account's on-chain owner must match.
+  // Only the trusted issuer may bind token hashes to accounts. Origin is CORS, not authentication.
   const corsFor = (row: TenantRow, origin: string | undefined): Record<string, string> =>
     origin && row.ingest_origins.includes(origin)
       ? { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "POST, OPTIONS", vary: "origin" }
@@ -71,20 +69,12 @@ export function createApp(deps: ServerDeps): Hono {
     const cors = corsFor(row, origin);
     const key = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
     const keyed = Boolean(key) && sha256Hex(key) === row.ingest_key_hash;
-    const fromAllowedOrigin = Boolean(origin) && row.ingest_origins.includes(origin!);
-    if (!keyed && !fromAllowedOrigin) return c.json({ error: "unauthorized" }, 401, cors);
+    if (!keyed) return c.json({ error: "unauthorized" }, 401, cors);
     const body = (await c.req.json().catch(() => null)) as Partial<{ token_hash: string; account_id: string; chain_id: number; owner_address: string }> | null;
     if (!body || !/^[0-9a-f]{64}$/.test(body.token_hash ?? "") || !body.account_id || !Number.isInteger(body.chain_id) || !/^0x[0-9a-fA-F]{40}$/.test(body.owner_address ?? "")) {
       return c.json({ error: "invalid_request" }, 400, cors);
     }
     const ownerAddress = body.owner_address!.toLowerCase();
-    if (!keyed) {
-      const onChain = tenant.adapter.accountOwner ? await tenant.adapter.accountOwner(String(body.account_id)).catch(() => null) : null;
-      if (!onChain || onChain.toLowerCase() !== ownerAddress) {
-        log("ingest.owner_mismatch", { tenant: id, account: body.account_id, origin });
-        return c.json({ error: "owner_mismatch" }, 403, cors);
-      }
-    }
     await store.recordPendingHandover({ tenant: id, tokenHash: body.token_hash!, accountId: String(body.account_id), chainId: body.chain_id!, ownerAddress });
     return c.json({ ok: true }, 200, cors);
   });

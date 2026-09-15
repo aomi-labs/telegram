@@ -34,7 +34,7 @@ Run from the repository root against the production `DATABASE_URL`, with the ten
 
 ```bash
 BOT_TOKEN=... DATABASE_URL=... SERVICE_KEY=... PUBLIC_URL=https://aomi-telegram-worker.fly.dev \
-  pnpm onboard --tenant world --ingest-origin https://dev.wcm.inc
+  pnpm onboard --tenant world
 ```
 
 It reads the aomi webhook currently registered on the bot, stores it as the forward target,
