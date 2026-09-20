@@ -1,7 +1,7 @@
 import { svgToPng } from "./chart.ts";
 import {
   BotApi, BudgetError, Sealer, Store, classify, commandNames, enforceBudget,
-  handoverTokenHash, isPlausibleStartToken, miniAppUrl,
+  miniAppUrl,
   type Tenant, type TenantRow, type Update,
 } from "@aomi-telegram/core";
 
@@ -50,11 +50,7 @@ export class TenantEdge {
         return;
       case "start": {
         const from = route.message.from;
-        if (from && isPlausibleStartToken(route.arg)) {
-          const binding = await store.bindStart(this.row.id, handoverTokenHash(route.arg), String(from.id));
-          log("start", { tenant: this.row.id, bound: binding !== null });
-          if (binding) this.prewarm(binding);
-        }
+        if (from) await store.touchVisit(this.row.id, String(from.id));
         await store.enqueueForward(this.row.id, update);
         return;
       }
@@ -69,13 +65,6 @@ export class TenantEdge {
         await this.runCommand(route.name, route.args, route.message);
         return;
     }
-  }
-
-  /** First venue read after a claim is the slow one; take it now so the user's first lookup is warm. */
-  private prewarm(binding: Parameters<Tenant["adapter"]["resolveAccount"]>[0]): void {
-    void this.tenant.adapter.resolveAccount(binding)
-      .then((account) => this.tenant.adapter.portfolio(account))
-      .catch((error) => this.deps.log("prewarm.failed", { tenant: this.row.id, error: String(error) }));
   }
 
   private async runCommand(name: string, args: string[], message: Update["message"] & object): Promise<void> {

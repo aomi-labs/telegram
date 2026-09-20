@@ -1,3 +1,5 @@
+> Current account authority: see [partner onboarding](partner-onboarding.md). Canonical Aomi handover lookup supersedes all ingest/local-binding descriptions in the historical notes below. The registration ingress is retired; no ingestion key is required.
+
 # Security update (2026-09-14)
 
 The browser-origin registration described in the historical handoff below is retired.

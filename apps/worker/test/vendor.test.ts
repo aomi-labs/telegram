@@ -19,10 +19,10 @@ const dm = (update_id: number, text: string): Update => ({ update_id, message: {
 
 suite("durable vendor dispatch", () => {
   const sql = postgres(url ?? "", { max: 4, onnotice: () => {} });
-  const store = new Store(sql);
+  const store = new Store(sql, async () => Response.json({ binding: null }));
   const sealer = new Sealer("33".repeat(32));
   const id = `vendor_${Date.now()}`;
-  const row: TenantRow = { id, bot_id: String(Date.now() + 2000), bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://backend.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] };
+  const row: TenantRow = { id, bot_id: String(Date.now() + 2000), bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://backend.local/hook", webhook_secret: "s" };
   const replies: string[] = [];
   const log = vi.fn();
   let releaseBalance: () => void = () => {};
@@ -88,7 +88,7 @@ suite("durable vendor dispatch", () => {
     const [first] = await store.claimVendor(1, "old-worker");
     expect(await store.claimVendor(1, "other-worker")).toEqual([]);
     await sql`UPDATE outbox SET lease_until = now() - interval '1 second' WHERE id = ${first!.id}`;
-    const restarted = new Store(sql);
+    const restarted = new Store(sql, async () => Response.json({ binding: null }));
     const [recovered] = await restarted.claimVendor(1, "new-worker");
     expect(recovered!.id).toBe(first!.id);
     await store.completeVendor(first!.id, first!.lease_token);

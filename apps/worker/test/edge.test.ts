@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Sealer, Store, handoverTokenHash, migrate, type Update } from "@aomi-telegram/core";
+import { Sealer, Store, migrate, type Update } from "@aomi-telegram/core";
 import { world } from "@aomi-telegram/tenant-world";
 import { TenantEdge } from "../src/edge.ts";
 import { drainOnce } from "../src/forward.ts";
@@ -21,7 +21,7 @@ function dm(text: string, userId = 4242): Update {
 
 suite("tenant edge (needs TEST_DATABASE_URL)", () => {
   const sql = postgres(url ?? "", { max: 2, onnotice: () => {} });
-  const store = new Store(sql);
+  const store = new Store(sql, async () => Response.json({ binding: null }));
   const sealer = new Sealer("11".repeat(32));
   const botId = String(Date.now());
   const tenantId = `edge_${botId}`;
@@ -42,7 +42,7 @@ suite("tenant edge (needs TEST_DATABASE_URL)", () => {
 
   beforeAll(async () => {
     await migrate(sql);
-    await store.upsertTenant({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] });
+    await store.upsertTenant({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s" });
   });
   afterAll(async () => {
     await sql`DELETE FROM outbox WHERE tenant = ${tenantId}`;
@@ -52,7 +52,7 @@ suite("tenant edge (needs TEST_DATABASE_URL)", () => {
     await sql.end();
   });
 
-  const edge = () => new TenantEdge({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] }, world, { store, sealer, telegramApiBase: "http://tg.local", fetchImpl: fakeFetch, log, publicWebUrl: "https://tg.example" });
+  const edge = () => new TenantEdge({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s" }, world, { store, sealer, telegramApiBase: "http://tg.local", fetchImpl: fakeFetch, log, publicWebUrl: "https://tg.example" });
 
   it("answers a vendor command itself and never forwards it", async () => {
     await edge().handle(dm("/b"));
@@ -68,11 +68,11 @@ suite("tenant edge (needs TEST_DATABASE_URL)", () => {
     expect(forwarded.at(-1)).toEqual(update);
   });
 
-  it("binds /start to a pending handover and still forwards it", async () => {
-    await store.recordPendingHandover({ tenant: tenantId, tokenHash: handoverTokenHash("tokXYZ123456"), accountId: "11", chainId: 1, ownerAddress: "0xabc" });
+  it("forwards /start for canonical claiming and records only a visit", async () => {
     const update = dm("/start tokXYZ123456");
     await edge().handle(update);
-    expect(await store.binding(tenantId, "4242")).toMatchObject({ accountId: "11" });
+    expect(await store.visit(tenantId, "4242")).not.toBeNull();
+    expect(await store.binding(tenantId, "4242")).toBeNull();
     await drainOnce({ store, log, webhookUrlFor: async () => "http://aomi.local/hook", fetchImpl: fakeFetch });
     expect(forwarded.at(-1)).toEqual(update);
   });
@@ -95,12 +95,12 @@ suite("chart photo reply (needs TEST_DATABASE_URL)", () => {
     const { candlesSvg, Sealer, Store, migrate } = await import("@aomi-telegram/core");
     const postgres = (await import("postgres")).default;
     const sql = postgres(process.env.TEST_DATABASE_URL ?? "", { max: 1, onnotice: () => {} });
-    const store = new Store(sql);
+    const store = new Store(sql, async () => Response.json({ binding: null }));
     const sealer = new Sealer("22".repeat(32));
     const botId = String(Date.now());
     const tenantId = `photo_${botId}`;
     await migrate(sql);
-    await store.upsertTenant({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] });
+    await store.upsertTenant({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s" });
     const uploads: { url: string; body: FormData }[] = [];
     const photoFetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
@@ -113,7 +113,7 @@ suite("chart photo reply (needs TEST_DATABASE_URL)", () => {
         id: tenantId, adapter: {} as never, watches: [], copy: { unmapped: "", renderFailed: "", title: "", tagline: "" }, compose: {} as never,
         commands: [{ name: "chart", description: "", budget: 120, render: async () => ({ text: "<code>X</code> week", svg: candlesSvg(candles, "1.4", "X · w") }) }],
       };
-      const edge = new TenantEdge({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s", ingest_key_hash: "h", ingest_origins: [] }, tenant as never, { store, sealer, telegramApiBase: "http://tg.local", fetchImpl: photoFetch, log: () => {} });
+      const edge = new TenantEdge({ id: tenantId, bot_id: botId, bot_username: "bot", bot_token_sealed: sealer.seal("tok"), aomi_webhook_url: "http://aomi.local/hook", webhook_secret: "s" }, tenant as never, { store, sealer, telegramApiBase: "http://tg.local", fetchImpl: photoFetch, log: () => {} });
       await edge.handle(dm("/chart X w", 777));
       expect(uploads).toHaveLength(1);
       const form = uploads[0]!.body;

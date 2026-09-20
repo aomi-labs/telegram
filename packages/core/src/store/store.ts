@@ -1,7 +1,8 @@
 import type { Sql } from "postgres";
 import type { AccountBinding } from "../tenant.ts";
 import type { Update } from "../telegram/update.ts";
-import type { PendingHandover } from "../edge/handover.ts";
+import { proxyAwareFetch } from "../net.ts";
+import { z } from "zod";
 
 export interface TenantRow {
   id: string;
@@ -10,8 +11,6 @@ export interface TenantRow {
   bot_token_sealed: string;
   aomi_webhook_url: string;
   webhook_secret: string;
-  ingest_key_hash: string;
-  ingest_origins: string[];
 }
 
 export interface OutboxRow { id: string; tenant: string; update: Update; attempts: number }
@@ -37,9 +36,9 @@ export interface FillRow {
 }
 export interface AlertRow { id: string; tenant: string; account_id: string; kind: string; sent_at: Date; cleared_at: Date | null }
 
-/** All persistence behind one type. Every method is a single statement or one transaction. */
+/** Tenant data and authoritative Aomi account lookups. */
 export class Store {
-  constructor(readonly sql: Sql) {}
+  constructor(readonly sql: Sql, private readonly fetchImpl: typeof fetch = proxyAwareFetch) {}
 
   tenant(id: string): Promise<TenantRow | null> {
     return this.sql<TenantRow[]>`SELECT * FROM tenants WHERE id = ${id}`.then((rows) => rows[0] ?? null);
@@ -48,47 +47,31 @@ export class Store {
   async upsertTenant(row: TenantRow): Promise<void> {
     await this.sql`
       INSERT INTO tenants (id, bot_id, bot_username, bot_token_sealed, aomi_webhook_url, webhook_secret, ingest_key_hash, ingest_origins)
-      VALUES (${row.id}, ${row.bot_id}, ${row.bot_username}, ${row.bot_token_sealed}, ${row.aomi_webhook_url}, ${row.webhook_secret}, ${row.ingest_key_hash}, ${row.ingest_origins})
+      VALUES (${row.id}, ${row.bot_id}, ${row.bot_username}, ${row.bot_token_sealed}, ${row.aomi_webhook_url}, ${row.webhook_secret}, '', '{}'::text[])
       ON CONFLICT (id) DO UPDATE SET
         bot_id = EXCLUDED.bot_id, bot_username = EXCLUDED.bot_username, bot_token_sealed = EXCLUDED.bot_token_sealed,
-        aomi_webhook_url = EXCLUDED.aomi_webhook_url, webhook_secret = EXCLUDED.webhook_secret, ingest_key_hash = EXCLUDED.ingest_key_hash,
-        ingest_origins = EXCLUDED.ingest_origins`;
+        aomi_webhook_url = EXCLUDED.aomi_webhook_url, webhook_secret = EXCLUDED.webhook_secret`;
   }
 
-  /** The trusted issuer registered a handover it just issued. Idempotent on token hash. */
-  async recordPendingHandover(pending: PendingHandover): Promise<void> {
-    await this.sql`
-      INSERT INTO accounts (tenant, token_hash, account_id, chain_id, owner_address)
-      VALUES (${pending.tenant}, ${pending.tokenHash}, ${pending.accountId}, ${pending.chainId}, ${pending.ownerAddress})
-      ON CONFLICT (tenant, token_hash) DO NOTHING`;
-  }
-
-  /**
-   * The edge saw `/start <token>`. If the hash matches a pending row, bind the
-   * Telegram user to it and make it the user's one active mapping. Returns the
-   * binding, or null when the token is not one the partner registered.
-   */
-  async bindStart(tenant: string, tokenHash: string, telegramUserId: string): Promise<AccountBinding | null> {
-    return this.sql.begin(async (tx) => {
-      const [row] = await tx<{ id: string; account_id: string; chain_id: string; owner_address: string }[]>`
-        SELECT id, account_id, chain_id, owner_address FROM accounts
-        WHERE tenant = ${tenant} AND token_hash = ${tokenHash} AND telegram_user_id IS NULL
-        FOR UPDATE`;
-      if (!row) return null;
-      await tx`UPDATE accounts SET active = false WHERE tenant = ${tenant} AND telegram_user_id = ${telegramUserId} AND active`;
-      await tx`UPDATE accounts SET telegram_user_id = ${telegramUserId}, bound_at = now(), active = true WHERE id = ${row.id}`;
-      return { tenant, telegramUserId, accountId: row.account_id, chainId: Number(row.chain_id), ownerAddress: row.owner_address };
-    });
-  }
-
-  binding(tenant: string, telegramUserId: string): Promise<AccountBinding | null> {
-    return this.sql<{ account_id: string; chain_id: string; owner_address: string }[]>`
-      SELECT account_id, chain_id, owner_address FROM accounts
-      WHERE tenant = ${tenant} AND telegram_user_id = ${telegramUserId} AND active`
-      .then((rows) => {
-        const row = rows[0];
-        return row ? { tenant, telegramUserId, accountId: row.account_id, chainId: Number(row.chain_id), ownerAddress: row.owner_address } : null;
+  /** Aomi owns the binding; never fall back to the historical accounts table. */
+  async binding(tenant: string, telegramUserId: string): Promise<AccountBinding | null> {
+    const row = await this.tenant(tenant);
+    if (!row) return null;
+    try {
+      const response = await this.fetchImpl(`${row.aomi_webhook_url.replace(/\/$/, "")}/binding`, {
+        method: "POST", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(10_000),
+        headers: { "content-type": "application/json" }, body: JSON.stringify({ telegram_user_id: telegramUserId }),
       });
+      if (!response.ok) throw new Error("lookup failed");
+      const { binding } = z.object({ binding: z.object({
+        account_id: z.string().min(1), owner_address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+        chain_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), state: z.enum(["claimed", "active"]),
+      }).nullable() }).parse(await response.json());
+      return binding ? { tenant, telegramUserId, accountId: binding.account_id, chainId: binding.chain_id, ownerAddress: binding.owner_address } : null;
+    } catch {
+      // Network errors can contain the capability URL. Never attach or relay them.
+      throw new Error("Account linking is unavailable. Please try again.");
+    }
   }
 
   async enqueueForward(tenant: string, update: Update): Promise<void> {
@@ -199,11 +182,17 @@ export class Store {
     return row ?? null;
   }
 
-  /** Every bound, active account with the Telegram user to push to. */
-  activeBindings(tenant: string): Promise<AccountBinding[]> {
-    return this.sql<{ account_id: string; chain_id: string; owner_address: string; telegram_user_id: string }[]>`
-      SELECT account_id, chain_id, owner_address, telegram_user_id FROM accounts WHERE tenant = ${tenant} AND active AND telegram_user_id IS NOT NULL`
-      .then((rows) => rows.map((r) => ({ tenant, telegramUserId: r.telegram_user_id, accountId: r.account_id, chainId: Number(r.chain_id), ownerAddress: r.owner_address })));
+  /** Local rows supply candidate identities only; Aomi authorizes each read. */
+  async activeBindings(tenant: string): Promise<AccountBinding[]> {
+    const users = await this.sql<{ telegram_user_id: string }[]>`
+      SELECT telegram_user_id FROM visits WHERE tenant = ${tenant}
+      UNION SELECT telegram_user_id FROM accounts WHERE tenant = ${tenant} AND telegram_user_id IS NOT NULL`;
+    const bindings: AccountBinding[] = [];
+    for (const user of users) {
+      const binding = await this.binding(tenant, user.telegram_user_id);
+      if (binding) bindings.push(binding);
+    }
+    return bindings;
   }
 
   fills(tenant: string, accountId: string, since: Date, limit = 200): Promise<FillRow[]> {

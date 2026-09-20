@@ -50,8 +50,20 @@ export function useApi<T>(tenant: string, path: string | null): { data: T | null
     let live = true;
     const controller = new AbortController();
     setError(null);
-    api<T>(tenant, path, { signal: controller.signal }).then((d) => live && setData(d)).catch((e: Error) => live && setError(e.message));
-    return () => { live = false; controller.abort(); };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = Date.now() + 30_000;
+    const read = async () => {
+      try {
+        const d = await api<T>(tenant, path, { signal: controller.signal });
+        if (!live) return;
+        setData(d);
+        if (d && typeof d === "object" && "mapped" in d && d.mapped === false && Date.now() < deadline) {
+          timer = setTimeout(read, 2_000);
+        }
+      } catch (e) { if (live) setError((e as Error).message); }
+    };
+    void read();
+    return () => { live = false; clearTimeout(timer); controller.abort(); };
   }, [tenant, path, tick]);
   return { data, error, reload: () => setTick((t) => t + 1) };
 }
