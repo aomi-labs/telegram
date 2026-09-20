@@ -13,7 +13,7 @@ Telegram ──► worker edge ──┬── /b /p /r /a /d /chart /tasks /app
 ## Layout
 
 - `packages/core` — tenant contract, store and migrations, Bot API client, initData verifier, edge routing table, handover binding
-- `apps/worker` — long-running process: webhook edge, outbox drainer, partner ingest, onboarding CLI, 60 s scheduler (watches, liquidation alert, per-account fills index), chart PNGs
+- `apps/worker` — long-running process: webhook edge, outbox drainer, canonical Aomi binding lookup, onboarding CLI, 60 s scheduler (watches, liquidation alert, per-account fills index), chart PNGs
 - `apps/web` — Next.js mini app and BFF
 - `tenants/world` — World Markets on UniFi testnet
 
@@ -76,6 +76,6 @@ See `docs/deploy.md` (Fly.io worker, Vercel web, one Postgres) and
 
 - One owner per update. The service never replies to an update it forwards.
 - Vendor commands are slash commands only, DM only, and may not use a reserved name.
-- Raw handover tokens are never stored; only `sha256(token)` from the partner's ingest call.
+- Aomi owns handover bindings. The edge forwards `/start`; every account lookup reads Aomi’s current bot-scoped binding. Local historical mappings cannot authorize access.
 - Forwarding is at-least-once. The backend's invocation key makes a duplicate a no-op.
 - A command that renders over its character budget fails; it is never trimmed.

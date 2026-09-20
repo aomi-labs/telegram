@@ -1,38 +1,12 @@
 # Partner onboarding
 
-What a partner does once to put their bot behind the service.
+1. Register the bot with Aomi, then run `pnpm onboard --tenant <id>` using its bot token. The worker captures Aomi's webhook URL, installs its own authenticated webhook, and registers commands. Keep the stored Aomi URL private: it contains the bot capability.
+2. Deploy Aomi's canonical binding endpoint before this mini-app version. The server appends `/binding` to the stored webhook URL and posts `{ "telegram_user_id": "123" }` after verifying Telegram identity. No ingestion key, browser registration call, or extra environment variable is needed.
+3. Keep the existing World signed handover flow. Manager verifies venue ownership; the worker forwards `/start`; Aomi claims the handover. The mini-app retries briefly while claiming completes. Claimed accounts can be viewed; trading still needs owner grant and activation.
+4. If the Aomi registration or webhook capability rotates, repeat onboarding with the current Aomi webhook URL. A disabled or revoked binding fails closed; old local account mappings cannot restore access.
 
-1. **Give us the bot token.** We run `pnpm onboard --tenant <id>`. The command
-   reads the webhook currently registered on the bot (the aomi backend's URL),
-   stores it as the forward target, points the bot at the service, registers
-   the command menu, and prints an ingest key exactly once.
-2. **Register through the trusted issuer.** Configure the Aomi manager's
-   `AOMI_TELEGRAM_HANDOVER_INGEST` JSON mapping, keyed by the exact bot
-   registration id, with `url` and the tenant's server-only `key`. Wallet
-   issuance registers the verified account, owner and venue chain before
-   returning the QR token. The registration request is:
+Deploy backend first, then worker and web together. The retired `/t/<tenant>/handovers` endpoint returns 404. Existing database tables remain for non-destructive rollout, but local accounts are no longer authoritative; their Telegram IDs only seed fresh canonical scheduler lookups.
 
-   ```http
-   POST /t/<tenant>/handovers
-   Authorization: Bearer <ingest key>
-   Content-Type: application/json
+Verify real Telegram claim, mini-app display, activation, trade receipt, and revoked/expired access before declaring delivery complete.
 
-   { "token_hash": "<sha256 hex of the raw token>", "account_id": "11",
-     "chain_id": 2092151908, "owner_address": "0x..." }
-   ```
-
-   Send the bare-token SHA-256, not Aomi's prefixed internal claim hash.
-   The service never holds a claimable token. A browser Origin is not
-   authorization, even if allowlisted, and must never receive the ingest key.
-   Release the configured issuer and bearer-only worker together before
-   switching the frontend. Review/invalidate bindings created through the
-   former public endpoint and require affected users to relink; this change
-   does not retroactively establish their provenance.
-3. **Keep the bot registration.** If the aomi bot registration is ever
-   recreated, aomi re-points the webhook at itself and the service goes quiet
-   until step 1 is repeated. The service's health check compares
-   `getWebhookInfo` and alerts when this happens.
-
-Rules the partner's commands live under: slash only, DM only, none of
-`/start /help /wallet /permission /transactions /sign`, and a hard character
-budget per reply.
+Partner commands remain slash-only and DM-only, excluding `/start /help /wallet /permission /transactions /sign`, with a hard character budget per reply.

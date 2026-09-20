@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Store, handoverTokenHash, migrate } from "../src/index.ts";
+import { Store, migrate } from "../src/index.ts";
 
 const url = process.env.TEST_DATABASE_URL;
 const suite = url ? describe : describe.skip;
@@ -12,7 +12,7 @@ suite("store (needs TEST_DATABASE_URL)", () => {
 
   beforeAll(async () => {
     await migrate(sql);
-    await store.upsertTenant({ id: tenant, bot_id: "1", bot_username: "x", bot_token_sealed: "s", aomi_webhook_url: "http://a", webhook_secret: "w", ingest_key_hash: "k", ingest_origins: [] });
+    await store.upsertTenant({ id: tenant, bot_id: "1", bot_username: "x", bot_token_sealed: "s", aomi_webhook_url: "http://a", webhook_secret: "w" });
   });
   afterAll(async () => {
     await sql`DELETE FROM outbox WHERE tenant = ${tenant}`;
@@ -21,16 +21,12 @@ suite("store (needs TEST_DATABASE_URL)", () => {
     await sql.end();
   });
 
-  it("binds /start to the pending handover once, latest wins", async () => {
-    const t1 = "tokenAAAAAAAAAA", t2 = "tokenBBBBBBBBBB";
-    await store.recordPendingHandover({ tenant, tokenHash: handoverTokenHash(t1), accountId: "11", chainId: 2092151908, ownerAddress: "0xabc" });
-    await store.recordPendingHandover({ tenant, tokenHash: handoverTokenHash(t2), accountId: "12", chainId: 2092151908, ownerAddress: "0xabc" });
-
-    expect(await store.bindStart(tenant, handoverTokenHash("unknown"), "u1")).toBeNull();
-    expect(await store.bindStart(tenant, handoverTokenHash(t1), "u1")).toMatchObject({ accountId: "11" });
-    expect(await store.bindStart(tenant, handoverTokenHash(t1), "u2")).toBeNull();
-    expect(await store.bindStart(tenant, handoverTokenHash(t2), "u1")).toMatchObject({ accountId: "12" });
-    expect(await store.binding(tenant, "u1")).toMatchObject({ accountId: "12" });
+  it("uses old rows only as candidate identities and never as account authority", async () => {
+    await sql`INSERT INTO accounts (tenant, token_hash, account_id, chain_id, owner_address, telegram_user_id, active)
+      VALUES (${tenant}, 'old', '11', 1, '0xold', '42', true)`;
+    const live = new Store(sql, async () => Response.json({ binding: null }));
+    expect(await live.binding(tenant, "42")).toBeNull();
+    expect(await live.activeBindings(tenant)).toEqual([]);
   });
 
   it("outbox claims due rows and backs off on failure", async () => {

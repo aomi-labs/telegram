@@ -8,6 +8,5 @@ export * from "./telegram/init-data.ts";
 export * from "./telegram/links.ts";
 export * from "./telegram/update.ts";
 export * from "./edge/route.ts";
-export * from "./edge/handover.ts";
 export * from "./store/store.ts";
 export * from "./store/migrate.ts";

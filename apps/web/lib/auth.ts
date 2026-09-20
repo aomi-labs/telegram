@@ -20,8 +20,7 @@ export class AuthError extends Error {
 /**
  * Every BFF call carries the Mini App initData. It is verified against
  * Telegram's public key with the tenant's bot id, then the Telegram user is
- * resolved to the tenant account the edge bound at /start. No bot token, no
- * call to the aomi backend.
+ * resolved through Aomi’s canonical handover for this bot.
  */
 export async function authorize<A = unknown>(request: Request, tenantId: string): Promise<Authorized<A>> {
   const tenant = tenants.get(tenantId) as Tenant<A> | undefined;
