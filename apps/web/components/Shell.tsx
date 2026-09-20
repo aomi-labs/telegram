@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { WorldLogo } from "./WorldLogo.tsx";
 import { useEffect } from "react";
 import { tg } from "@/lib/tg.ts";
 
@@ -13,15 +14,20 @@ export function Shell({ tenant, view, title, tagline, botUsername, children }: {
     app?.expand();
   }, []);
   return (
-    <main>
-      <h1>{title ?? "…"}</h1>
-      {tagline ? <div className="tag">{tagline}</div> : null}
+    <main className={tenant === "world" ? "world-shell" : undefined}>
+      <header className="shell-header">
+        {tenant === "world" ? <WorldLogo aria-hidden="true" /> : null}
+        <div>
+          <h1>{title ?? (tenant === "world" ? "World Markets" : "…")}</h1>
+          {tagline ? <div className="tag">{tagline}</div> : null}
+        </div>
+      </header>
       <nav className="tabs" aria-label="Views">
         {TABS.map(([slug, label]) => (
-          <Link key={slug} href={`/t/${tenant}${slug ? `/${slug}` : ""}`} className={view === slug ? "on" : ""}>{label}</Link>
+          <Link key={slug} href={`/t/${tenant}${slug ? `/${slug}` : ""}`} className={view === slug ? "on" : ""} aria-current={view === slug ? "page" : undefined}>{label}</Link>
         ))}
       </nav>
-      {children}
+      <div className="shell-content">{children}</div>
       <div className="bottom">
         {botUsername ? <a href={`https://t.me/${botUsername}`}>↩ Back to chat — say the word there</a> : <span className="muted">↩ Back to chat</span>}
       </div>
