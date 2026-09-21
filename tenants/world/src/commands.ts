@@ -4,7 +4,7 @@ import type { WorldAccount, WorldAdapter } from "./adapter.ts";
 import { renderAvailable, renderBalance, renderDollarpower, renderPositions, renderRisk, POSITIONS_BUDGET } from "./lookups.ts";
 import type { AccountSnapshot } from "./snapshot.ts";
 
-export const UNMAPPED = "Set up your agent on the World Markets web app first, then come back here.";
+export const UNMAPPED = "Set up your agent on the World Markets web app first.";
 
 type Lookup = (snapshot: AccountSnapshot) => string;
 
